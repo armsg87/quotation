@@ -588,20 +588,44 @@ function parseDisc(raw, linePrice) {
 async function gen(){
   const text = document.getElementById('txt').value.trim();
   if(!text){ alert('กรุณาพิมพ์หรือพูดรายการก่อนครับ'); return; }
-  document.getElementById('genBtn').disabled=true;
+  document.getElementById('genBtn').disabled = true;
   document.getElementById('ldr').classList.add('on');
-  sst('⏳ AI กำลังประมวลผล...','a');
+  setSt('⏳ AI กำลังประมวลผล...','a');
+
   const today=(()=>{ const d=new Date(); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()+543-2500}`; })();
-  const sys=`แปลงข้อความเป็น JSON ใบเสนอราคา ตอบ JSON เท่านั้น ห้ามมีข้อความอื่น:
-{"to":"ชื่อผู้รับ","date":"วว/ดด/ปป","ref":"","items":[{"name":"สินค้า","qty":"จำนวน","unit":"หน่วย","price":"ราคา/หน่วย (ตัวเลขล้วน)","discount":"ส่วนลด เช่น 10% หรือ 200 (บาท) หรือ 0 ถ้าไม่มี","total":"ยอดรวมหลังลด"}],"note":""}
-กฎ: date default "${today}" | ถ้า discount เป็น % ให้ใส่เป็น "10%" | ถ้าเป็นบาทใส่ตัวเลข | total=(qty×price)-ส่วนลดคำนวณแล้ว | ตัวเลขใส่ comma | note เว้นว่าง`;
+
+  const prompt = `แปลงข้อความเป็น JSON ใบเสนอราคา ตอบ JSON เท่านั้น ห้ามมีข้อความอื่น:
+{"to":"ชื่อผู้รับ","date":"วว/ดด/ปป","ref":"","items":[{"name":"สินค้า","qty":"จำนวน","unit":"หน่วย","price":"ราคา/หน่วย","discount":"ส่วนลด % หรือ บาท หรือ 0","total":"ยอดรวมหลังลด"}],"note":""}
+กฎ: date default "${today}" | total=(qty×price)-discount | ตัวเลขใส่ comma | note เว้นว่าง
+
+ข้อความ: ${text}`;
+
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:sys,messages:[{role:'user',content:text}]})});
-    const d=await r.json();
-    const j=JSON.parse(d.content[0].text.replace(/```json|```/g,'').trim());
-    render(j); sst('✅ สร้างเสร็จแล้ว','ok');
-  }catch(e){ console.error(e); alert('เกิดข้อผิดพลาด กรุณาลองใหม่'); sst('กดไมค์เพื่อพูด',''); }
-  finally{ document.getElementById('genBtn').disabled=false; document.getElementById('ldr').classList.remove('on'); }
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AQ.Ab8RN6JdsowQyLbPSFYtK6dTPtcMg7H3s9EkuabRW0FuS_w6Wg`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          contents: [{parts: [{text: prompt}]}],
+          generationConfig: {temperature: 0.1, maxOutputTokens: 1000}
+        })
+      }
+    );
+    const d = await r.json();
+    if(d.error) throw new Error(d.error.message);
+    const raw = d.candidates[0].content.parts[0].text.replace(/```json|```/g,'').trim();
+    const j = JSON.parse(raw);
+    render(j);
+    setSt('✅ สร้างเสร็จแล้ว','ok');
+  } catch(e){
+    console.error(e);
+    alert('เกิดข้อผิดพลาด: ' + e.message);
+    setSt('กดไมค์เพื่อพูด','');
+  } finally{
+    document.getElementById('genBtn').disabled = false;
+    document.getElementById('ldr').classList.remove('on');
+  }
 }
 
 /* ── RENDER ── */
@@ -885,44 +909,37 @@ async function readImage(){
   document.getElementById('btnReadImg').disabled = true;
   setImgSt('⏳ AI กำลังอ่านรูปภาพ...', 'loading');
 
-  const today = (()=>{ const d=new Date(); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()+543-2500}`; })();
+  const today=(()=>{ const d=new Date(); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()+543-2500}`; })();
 
-  const sys = `คุณคือระบบอ่านรูปภาพ Order และแปลงเป็น JSON ใบเสนอราคา ตอบ JSON เท่านั้น ห้ามมีข้อความอื่น:
-{"to":"ชื่อผู้รับ หรือเว้นว่างถ้าไม่มี","date":"วว/ดด/ปป","ref":"","items":[{"name":"ชื่อสินค้า","qty":"จำนวน","unit":"หน่วย เช่น แผ่น มัด ถุง อัน","price":"ราคา/หน่วย","discount":"0","total":"ยอดรวม"}],"note":""}
-กฎ: date default "${today}" | total=qty×price | ตัวเลขใส่ comma | ถ้าไม่มีหน่วยให้เดาจากบริบท | อ่านทั้งภาษาไทยและอังกฤษ`;
+  const prompt = `อ่านรายการสินค้า ราคา และข้อมูลทั้งหมดจากรูปนี้ แล้วแปลงเป็น JSON ใบเสนอราคา ตอบ JSON เท่านั้น:
+{"to":"ชื่อผู้รับ","date":"วว/ดด/ปป","ref":"","items":[{"name":"สินค้า","qty":"จำนวน","unit":"หน่วย","price":"ราคา","discount":"0","total":"ยอดรวม"}],"note":""}
+กฎ: date default "${today}" | total=qty×price | ตัวเลขใส่ comma`;
 
   try{
-    const r = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: sys,
-        messages:[{
-          role:'user',
-          content:[
-            {
-              type:'image',
-              source:{ type:'base64', media_type: currentImgType, data: currentImgB64 }
-            },
-            {
-              type:'text',
-              text:'อ่านรายการสินค้า ราคา และข้อมูลทั้งหมดจากรูปนี้ แล้วแปลงเป็น JSON ใบเสนอราคา'
-            }
-          ]
-        }]
-      })
-    });
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AQ.Ab8RN6JdsowQyLbPSFYtK6dTPtcMg7H3s9EkuabRW0FuS_w6Wg`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          contents: [{parts: [
+            {inline_data: {mime_type: currentImgType, data: currentImgB64}},
+            {text: prompt}
+          ]}],
+          generationConfig: {temperature: 0.1, maxOutputTokens: 1000}
+        })
+      }
+    );
     const d = await r.json();
-    if(d.error){ throw new Error(d.error.message); }
-    const j = JSON.parse(d.content[0].text.replace(/```json|```/g,'').trim());
+    if(d.error) throw new Error(d.error.message);
+    const raw = d.candidates[0].content.parts[0].text.replace(/```json|```/g,'').trim();
+    const j = JSON.parse(raw);
     render(j);
     setImgSt('✅ อ่านสำเร็จ! ตรวจสอบและแก้ไขได้เลย', 'ok');
-    sst('✅ อ่านรูปเสร็จแล้ว', 'ok');
+    setSt('✅ อ่านรูปเสร็จแล้ว', 'ok');
   } catch(e){
     console.error(e);
-    setImgSt('❌ เกิดข้อผิดพลาด กรุณาลองใหม่', 'err');
+    setImgSt('❌ เกิดข้อผิดพลาด: ' + e.message, 'err');
   } finally {
     document.getElementById('btnReadImg').disabled = false;
   }
