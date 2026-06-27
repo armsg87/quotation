@@ -682,7 +682,7 @@ async function gen(){
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetch('https://dry-wave-d617.armsg87.workers.dev/', {
       method: 'POST',
       headers: {
         'x-api-key': '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',
