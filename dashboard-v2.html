@@ -610,14 +610,27 @@ async function supaFetch(method, path, body=null){
   return res.status===204?null:res.json();
 }
 
+// ดึงข้อมูลทั้งหมดเป็นรอบๆ — Supabase จำกัดไม่เกิน 1,000 แถวต่อครั้ง (limit=2000 จะถูกตัดเหลือ 1,000)
+async function fetchAllQuotations(){
+  const PAGE=1000;
+  let all=[], offset=0;
+  for(let i=0;i<100;i++){
+    const part=await supaFetch('GET','/rest/v1/quotations?order=saved_at.desc,id.desc&limit='+PAGE+'&offset='+offset);
+    if(!part||part.length===0) break;
+    all=all.concat(part);
+    offset+=part.length;
+  }
+  return all;
+}
+
 async function loadFromSupabase(){
   try{
     // ลอง order by saved_at ก่อน ถ้าไม่มี column นี้จะ fallback ไป created_at
     let rows;
     try{
-      rows=await supaFetch('GET','/rest/v1/quotations?order=saved_at.desc&limit=2000');
+      rows=await fetchAllQuotations();
     }catch(e1){
-      rows=await supaFetch('GET','/rest/v1/quotations?order=saved_at.desc&limit=2000');
+      rows=await fetchAllQuotations();
     }
     return rows.map(r=>({
       id:r.id,
