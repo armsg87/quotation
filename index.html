@@ -1913,6 +1913,41 @@ document.getElementById('historyModal').addEventListener('click', function(e) {
   if (e.target === this) closeHistory();
 });
 
+// ปุ่ม "แก้ไข" ในประวัติ — ตัวดักการแตะแบบรวมศูนย์ (รองรับ Android: touchend + click)
+// ถ้าเปิดหน้าแก้ไขไม่สำเร็จ จะมีหน้าต่างแจ้งสาเหตุขึ้นมา
+(function () {
+  var list = document.getElementById('historyList');
+  if (!list) return;
+  var lastFire = 0, tx = 0, ty = 0, moved = false;
+  function openEditSafe(btn) {
+    var now = Date.now();
+    if (now - lastFire < 700) return;
+    lastFire = now;
+    var id = btn.getAttribute('data-qid');
+    function fail(err) { alert('เปิดหน้าแก้ไขไม่สำเร็จ: ' + (err && err.message ? err.message : err)); }
+    try {
+      var p = heOpen(id);
+      if (p && p.catch) p.catch(fail);
+    } catch (err) { fail(err); }
+  }
+  list.addEventListener('touchstart', function (e) {
+    var t = e.touches[0]; tx = t.clientX; ty = t.clientY; moved = false;
+  }, { passive: true });
+  list.addEventListener('touchmove', function (e) {
+    var t = e.touches[0];
+    if (Math.abs(t.clientX - tx) > 10 || Math.abs(t.clientY - ty) > 10) moved = true;
+  }, { passive: true });
+  list.addEventListener('touchend', function (e) {
+    if (moved) return;
+    var btn = e.target.closest ? e.target.closest('.hca-edit') : null;
+    if (btn) { e.preventDefault(); openEditSafe(btn); }
+  }, { passive: false });
+  list.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('.hca-edit') : null;
+    if (btn) openEditSafe(btn);
+  });
+})();
+
 // card actions ใช้ window.hca_* functions
 
 /* ────────────────────────────────────────
@@ -1948,6 +1983,7 @@ async function loadHistory(staffName) {
 
       const card = document.createElement('div');
       card.className = 'h-card';
+      card.setAttribute('data-qid', r.id);
       card.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
           <div class="h-card-ref">${r.ref || '-'}</div>
@@ -1966,7 +2002,7 @@ async function loadHistory(staffName) {
       const btnEdit = document.createElement('button');
       btnEdit.className = 'hca-btn hca-edit';
       btnEdit.textContent = '✏️ แก้ไข';
-      btnEdit.addEventListener('click', () => heOpen(r.id));
+      btnEdit.setAttribute('data-qid', r.id);
       actions.appendChild(btnEdit);
 
       if (st !== 'won') {
