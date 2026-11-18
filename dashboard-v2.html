@@ -382,6 +382,7 @@ textarea.item-inp{resize:none;overflow:hidden;display:block;white-space:pre-wrap
     <!-- QUOTES TAB -->
     <div id="pane-quotes" style="display:none">
       <div class="filter-bar">
+        <input type="search" id="fSearch" class="filter-sel" placeholder="🔍 ค้นหา ชื่อลูกค้า / บริษัท / เลขที่ใบ / สินค้า / พนักงาน" oninput="onQuoteSearch()" autocomplete="off" style="flex:1 1 100%;min-width:0;width:100%;box-sizing:border-box">
         <select class="filter-sel" id="fDate" onchange="renderQuotes()">
           <option value="today">วันนี้</option>
           <option value="week">7 วันล่าสุด</option>
@@ -601,6 +602,7 @@ const SUPA_URL = 'https://ujhwywjqksuatlmvehym.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqaHd5d2pxa3N1YXRsbXZlaHltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzMzg2NDUsImV4cCI6MjA5NzkxNDY0NX0.9ToNEgdaJVmeSe8koUm7FjLBn9JTcKyL1URW43blMwk';
 
 async function supaFetch(method, path, body=null){
+  if(method!=='GET'){ _qCache=null; }
   const res = await fetch(SUPA_URL+path,{
     method,
     headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Prefer':method==='POST'?'return=representation':''},
@@ -623,7 +625,35 @@ async function fetchAllQuotations(){
   return all;
 }
 
+// แคชข้อมูลใบเสนอราคา 60 วินาที — กันไม่ให้ดึงใหม่ทุกครั้งที่กรอง/พิมพ์ค้นหา (ล้างแคชเมื่อมีการแก้ไข/ลบ)
+let _qCache=null,_qCacheAt=0;
 async function loadFromSupabase(){
+  if(_qCache && Date.now()-_qCacheAt<60000) return _qCache;
+  const rows=await loadFromSupabaseRaw();
+  if(rows && rows.length){ _qCache=rows; _qCacheAt=Date.now(); }
+  return rows;
+}
+
+// รายชื่อพนักงานในตัวกรอง — สร้างจากข้อมูลจริง รวมผู้บริหารและพนักงานใหม่ทุกคน
+function refreshStaffFilter(rows){
+  var sel=document.getElementById('fStaff'); if(!sel) return;
+  var cnt={}; rows.forEach(function(x){ if(x.staff) cnt[x.staff]=(cnt[x.staff]||0)+1; });
+  var order=['สุ','อาร์ม','ยี่','นอม'].concat(STAFF_LIST), names=[];
+  order.forEach(function(n){ if(names.indexOf(n)<0) names.push(n); });
+  Object.keys(cnt).forEach(function(n){ if(names.indexOf(n)<0) names.push(n); });
+  var sig=names.map(function(n){return n+':'+(cnt[n]||0);}).join('|');
+  if(sel.getAttribute('data-sig')===sig) return;
+  var cur=sel.value;
+  sel.innerHTML='<option value="all">ทุกพนักงาน</option>'+names.map(function(n){return '<option value="'+n+'">'+n+(cnt[n]?' ('+cnt[n]+')':'')+'</option>';}).join('');
+  sel.setAttribute('data-sig',sig);
+  sel.value=cur; if(sel.value!==cur) sel.value='all';
+}
+
+// ช่องค้นหา — หน่วงเวลาเล็กน้อยระหว่างพิมพ์
+let _searchT=null;
+function onQuoteSearch(){ clearTimeout(_searchT); _searchT=setTimeout(function(){ renderQuotes(); },250); }
+
+async function loadFromSupabaseRaw(){
   try{
     // ลอง order by saved_at ก่อน ถ้าไม่มี column นี้จะ fallback ไป created_at
     let rows;
@@ -934,7 +964,20 @@ async function renderQuotes(){
   const fStatus=document.getElementById('fStatus')?.value||'all';
   const fStaff=document.getElementById('fStaff')?.value||'all';
   let q=await getBaseData();
+  refreshStaffFilter(q);
   q=applyFilters(q,fDate,fCo,fStatus,canSeeAll()?fStaff:null);
+  var fSearch=(document.getElementById('fSearch')||{value:''}).value.trim().toLowerCase();
+  if(fSearch){
+    var terms=fSearch.split(/\s+/);
+    q=q.filter(function(x){
+      if(!x._hay){
+        var itemNames=(x.items||[]).map(function(i){return (i&&i.name)||'';}).join(' ');
+        x._hay=[x.to,x.coName,x.ref,x.staff,x.note,itemNames].join(' ').toLowerCase();
+        x._hayNS=x._hay.replace(/\s+/g,'');
+      }
+      return terms.every(function(t){ return x._hay.indexOf(t)>-1 || x._hayNS.indexOf(t)>-1; });
+    });
+  }
   q=q.sort((a,b)=>new Date(b.savedAt||b.date)-new Date(a.savedAt||a.date));
   document.getElementById('fCount').textContent=`${q.length} รายการ`;
   const tbody=document.getElementById('quotesTbody');
